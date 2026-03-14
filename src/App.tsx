@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { HashRouter, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
 import DashboardPage from './pages/DashboardPage';
 import StaffPage from './pages/StaffPage';
@@ -10,7 +10,7 @@ import './App.css';
 
 export default function App() {
   return (
-    <BrowserRouter basename="/SchedulerForJenn">
+    <HashRouter>
       <Routes>
         <Route element={<Layout />}>
           <Route path="/" element={<DashboardPage />} />
@@ -21,6 +21,6 @@ export default function App() {
           <Route path="/settings" element={<SettingsPage />} />
         </Route>
       </Routes>
-    </BrowserRouter>
+    </HashRouter>
   );
 }
