@@ -6,7 +6,6 @@ import type { SavedSchedule, SavedScheduleDay } from '../store';
 import {
   generateSchedule,
   buildCalendarDays,
-  checkPrefViolation,
   getViolatedPreferences,
   runPreflightCheck,
   getDayName,
@@ -140,11 +139,11 @@ export default function SchedulePage() {
   const [days, setDays] = useState<DayData[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [facilities, setFacilities] = useState<Facility[]>([]);
-  const [timeOffList, setTimeOffList] = useState<TimeOffRequest[]>([]);
+  const [, setTimeOffList] = useState<TimeOffRequest[]>([]);
   const [patternStart, setPatternStart] = useState('');
 
   // Pinned assignments (persisted across generate/regenerate)
-  const [pinnedAssignments, setPinnedAssignments] = useState<Map<string, Assignment[]>>(new Map());
+  const [, setPinnedAssignments] = useState<Map<string, Assignment[]>>(new Map());
 
   // Filter
   const [hiddenProviders, setHiddenProviders] = useState<Set<string>>(new Set());

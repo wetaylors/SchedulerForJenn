@@ -5,10 +5,8 @@ import { seedStaff, seedFacilities } from '../data/seed';
 import { hasSeeded, markSeeded, saveFacilities } from '../store';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
-const FULL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-// Map short day names to full names and vice versa
+// Map short day names to full names
 const SHORT_TO_FULL: Record<string, string> = { Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday' };
-const FULL_TO_SHORT: Record<string, string> = { Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri' };
 
 const PRIORITY_OPTIONS = [
   { value: '', label: '--' },
@@ -50,19 +48,6 @@ function emptyStaff(): StaffMember {
 
 function emptyPreference(): Preference {
   return { id: generateId(), category: 'Facility', type: 'Prefer', value: '', days: [] };
-}
-
-// Get workable short day names based on schedule
-function getWorkableDays(schedule: SchedulePattern): string[] {
-  if (schedule.mode === 'specific') {
-    // Union of week1 and week2 days
-    const days = new Set<string>();
-    schedule.week1Days?.forEach(d => days.add(d));
-    schedule.week2Days?.forEach(d => days.add(d));
-    return WEEKDAYS.filter(d => days.has(d));
-  }
-  // Days per week mode: all days except excluded
-  return WEEKDAYS.filter(d => !schedule.excludedDays.includes(d));
 }
 
 // Format schedule for display in table

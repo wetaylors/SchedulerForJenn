@@ -821,7 +821,6 @@ export function generateSchedule(
     if (!day.isCurrentMonth) continue;
     const dk = toDateKey(day.date);
     const dayName = getDayName(day.date);
-    const dow = day.date.getDay();
 
     const pinned = pinnedAssignments.get(dk) ?? [];
     const assignedStaffIds = new Set<string>();
