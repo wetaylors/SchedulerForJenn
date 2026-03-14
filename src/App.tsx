@@ -10,7 +10,7 @@ import './App.css';
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename="/SchedulerForJenn">
       <Routes>
         <Route element={<Layout />}>
           <Route path="/" element={<DashboardPage />} />
