@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { Facility, FacilityCapabilityRequirement } from '../types';
-import { getFacilities, saveFacilities, getAllCapabilities } from '../store';
+import { getFacilities, saveFacilities, getAllCapabilities, subscribeToStore } from '../store';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -302,7 +302,9 @@ export default function FacilitiesPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   useEffect(() => {
-    setFacilities(getFacilities());
+    const load = () => setFacilities(getFacilities());
+    load();
+    return subscribeToStore(load);
   }, []);
 
   const refreshFacilities = () => {

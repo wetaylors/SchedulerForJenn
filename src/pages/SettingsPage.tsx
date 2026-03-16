@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { AppSettings } from '../types';
-import { getSettings, saveSettings } from '../store';
+import { getSettings, saveSettings, getRuleToggles, saveRuleToggles, subscribeToStore } from '../store';
 
 interface SchedulingRule {
   id: string;
@@ -18,34 +18,17 @@ const SCHEDULING_RULES: SchedulingRule[] = [
   },
 ];
 
-const RULES_STORAGE_KEY = 'scheduler_rules';
-
-function getRuleToggles(): Record<string, boolean> {
-  const raw = localStorage.getItem(RULES_STORAGE_KEY);
-  if (!raw) {
-    // Default all on
-    const defaults: Record<string, boolean> = {};
-    SCHEDULING_RULES.forEach(r => { defaults[r.id] = true; });
-    return defaults;
-  }
-  try {
-    return JSON.parse(raw);
-  } catch {
-    const defaults: Record<string, boolean> = {};
-    SCHEDULING_RULES.forEach(r => { defaults[r.id] = true; });
-    return defaults;
-  }
-}
-
-function saveRuleToggles(toggles: Record<string, boolean>): void {
-  localStorage.setItem(RULES_STORAGE_KEY, JSON.stringify(toggles));
-}
-
 export default function SettingsPage() {
   const [settings, setSettings] = useState<AppSettings>(() => getSettings());
   const [ruleToggles, setRuleToggles] = useState<Record<string, boolean>>(() => getRuleToggles());
 
-  // Save on change — no useEffect, no race conditions
+  useEffect(() => {
+    return subscribeToStore(() => {
+      setSettings(getSettings());
+      setRuleToggles(getRuleToggles());
+    });
+  }, []);
+
   const updateSettings = (updated: AppSettings) => {
     setSettings(updated);
     saveSettings(updated);

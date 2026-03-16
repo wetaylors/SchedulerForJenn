@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { StaffMember, Facility, TimeOffRequest } from '../types';
-import { getStaff, getFacilities, getTimeOff, getSettings, getSchedule, saveSchedule, getRuleToggles } from '../store';
+import { getStaff, getFacilities, getTimeOff, getSettings, getSchedule, saveSchedule, loadSchedule, getRuleToggles, subscribeToStore } from '../store';
 import type { SavedSchedule, SavedScheduleDay } from '../store';
 import {
   generateSchedule,
@@ -164,32 +164,37 @@ export default function SchedulePage() {
 
   const popupRef = useRef<HTMLDivElement>(null);
 
-  // Load data
+  // Load data and subscribe to config changes
   useEffect(() => {
-    const s = getStaff();
-    const f = getFacilities();
-    const t = getTimeOff();
-    const settings = getSettings();
-    setStaff(s);
-    setFacilities(f);
-    setTimeOffList(t);
-    setPatternStart(settings.patternStartDate);
+    const refreshConfig = () => {
+      setStaff(getStaff());
+      setFacilities(getFacilities());
+      setTimeOffList(getTimeOff());
+      setPatternStart(getSettings().patternStartDate);
+    };
 
-    // Check for saved schedule for this month
-    const saved = getSchedule(year, month);
-    if (saved) {
-      setDays(loadSavedIntoDays(saved, year, month));
-      setScheduleState(saved.state);
-      // Rebuild pinned map from saved data
-      const pins = new Map<string, Assignment[]>();
-      for (const sd of saved.days) {
-        const pinned = sd.assignments.filter(a => a.pinned && a.facilityId !== '__off__' && a.facilityId !== '__pto__');
-        if (pinned.length > 0) pins.set(sd.dateISO, pinned.map(a => ({ ...a })));
+    const initialize = async () => {
+      refreshConfig();
+      const prevM = month === 0 ? 11 : month - 1;
+      const prevY = month === 0 ? year - 1 : year;
+      await loadSchedule(prevY, prevM);
+      const saved = await loadSchedule(year, month);
+      if (saved) {
+        setDays(loadSavedIntoDays(saved, year, month));
+        setScheduleState(saved.state);
+        const pins = new Map<string, Assignment[]>();
+        for (const sd of saved.days) {
+          const pinned = sd.assignments.filter(a => a.pinned && a.facilityId !== '__off__' && a.facilityId !== '__pto__');
+          if (pinned.length > 0) pins.set(sd.dateISO, pinned.map(a => ({ ...a })));
+        }
+        setPinnedAssignments(pins);
+      } else {
+        setDays(injectPTO(buildCalendarDays(year, month), getStaff(), getTimeOff()));
       }
-      setPinnedAssignments(pins);
-    } else {
-      setDays(injectPTO(buildCalendarDays(year, month), s, t));
-    }
+    };
+
+    initialize();
+    return subscribeToStore(refreshConfig);
   }, []);
 
   // Close popup on outside click
@@ -219,11 +224,14 @@ export default function SchedulePage() {
     });
   };
 
-  const loadMonth = (newYear: number, newMonth: number) => {
+  const loadMonth = async (newYear: number, newMonth: number) => {
     setActivePopup(null);
     setYear(newYear);
     setMonth(newMonth);
-    const saved = getSchedule(newYear, newMonth);
+    const prevM = newMonth === 0 ? 11 : newMonth - 1;
+    const prevY = newMonth === 0 ? newYear - 1 : newYear;
+    await loadSchedule(prevY, prevM);
+    const saved = await loadSchedule(newYear, newMonth);
     if (saved) {
       setDays(loadSavedIntoDays(saved, newYear, newMonth));
       setScheduleState(saved.state);
@@ -234,9 +242,7 @@ export default function SchedulePage() {
       }
       setPinnedAssignments(pins);
     } else {
-      const freshStaff = getStaff();
-      const freshTimeOff = getTimeOff();
-      setDays(injectPTO(buildCalendarDays(newYear, newMonth), freshStaff, freshTimeOff));
+      setDays(injectPTO(buildCalendarDays(newYear, newMonth), getStaff(), getTimeOff()));
       setScheduleState('blank');
       setPinnedAssignments(new Map());
     }
@@ -273,8 +279,7 @@ export default function SchedulePage() {
     }
   };
 
-  const doGenerate = () => {
-    // Re-read from localStorage to pick up any edits made on other pages
+  const doGenerate = async () => {
     const freshStaff = getStaff();
     const freshFacilities = getFacilities();
     const freshTimeOff = getTimeOff();
@@ -284,7 +289,7 @@ export default function SchedulePage() {
     setTimeOffList(freshTimeOff);
     setPatternStart(freshSettings.patternStartDate);
 
-    // Bug #1 fix: rebuild pins from current days (handles pins added on blank schedule)
+    // Rebuild pins from current days (handles pins added on blank schedule)
     const pins = new Map<string, Assignment[]>();
     for (const day of days) {
       if (!day.isCurrentMonth) continue;
@@ -296,6 +301,11 @@ export default function SchedulePage() {
     }
     setPinnedAssignments(pins);
 
+    // Ensure prev month schedule is in cache for split-week carryover
+    const prevM = month === 0 ? 11 : month - 1;
+    const prevY = month === 0 ? year - 1 : year;
+    await loadSchedule(prevY, prevM);
+
     const ruleToggles = getRuleToggles();
     const carryover = computeSplitWeekCarryover(year, month, freshSettings.patternStartDate);
     const result = generateSchedule(year, month, freshStaff, freshFacilities, freshTimeOff, freshSettings.patternStartDate, pins, ruleToggles, carryover);
@@ -305,8 +315,7 @@ export default function SchedulePage() {
     persistDays(result, 'generated');
   };
 
-  const handleRegenerate = () => {
-    // Collect current pins
+  const handleRegenerate = async () => {
     const pins = new Map<string, Assignment[]>();
     for (const day of days) {
       if (!day.isCurrentMonth) continue;
@@ -317,7 +326,6 @@ export default function SchedulePage() {
       }
     }
     setPinnedAssignments(pins);
-    // Re-read from localStorage to pick up any edits made on other pages
     const freshStaff = getStaff();
     const freshFacilities = getFacilities();
     const freshTimeOff = getTimeOff();
@@ -326,6 +334,10 @@ export default function SchedulePage() {
     setFacilities(freshFacilities);
     setTimeOffList(freshTimeOff);
     setPatternStart(freshSettings.patternStartDate);
+
+    const prevM = month === 0 ? 11 : month - 1;
+    const prevY = month === 0 ? year - 1 : year;
+    await loadSchedule(prevY, prevM);
 
     const ruleToggles = getRuleToggles();
     const carryover = computeSplitWeekCarryover(year, month, freshSettings.patternStartDate);

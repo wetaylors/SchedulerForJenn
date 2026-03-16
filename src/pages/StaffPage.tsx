@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { StaffMember, Preference, SchedulePattern } from '../types';
-import { getStaff, saveStaff, getFacilities, getAllCapabilities } from '../store';
+import { getStaff, saveStaff, getFacilities, getAllCapabilities, hasSeeded, markSeeded, saveFacilities, subscribeToStore } from '../store';
 import { seedStaff, seedFacilities } from '../data/seed';
-import { hasSeeded, markSeeded, saveFacilities } from '../store';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 // Map short day names to full names
@@ -354,18 +353,19 @@ export default function StaffPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   useEffect(() => {
-    // Seed data on first load
     if (!hasSeeded()) {
       saveStaff(seedStaff);
       saveFacilities(seedFacilities);
       markSeeded();
     }
-    setStaff(getStaff());
-
-    const facilities = getFacilities();
-    setFacilityList(facilities.map(f => ({ id: f.id, name: f.name })));
-
-    setCapabilityList(getAllCapabilities());
+    const load = () => {
+      setStaff(getStaff());
+      const facilities = getFacilities();
+      setFacilityList(facilities.map(f => ({ id: f.id, name: f.name })));
+      setCapabilityList(getAllCapabilities());
+    };
+    load();
+    return subscribeToStore(load);
   }, []);
 
   const refreshStaff = () => {

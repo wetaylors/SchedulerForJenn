@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { StaffMember, Facility, TimeOffRequest, AppSettings } from '../types';
-import { getStaff, getFacilities, getTimeOff, getSettings } from '../store';
+import { getStaff, getFacilities, getTimeOff, getSettings, getRuleToggles, subscribeToStore } from '../store';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 
@@ -58,13 +58,6 @@ function dayCount(start: string, end: string): number {
   return Math.round((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24)) + 1;
 }
 
-// Get rule toggles from localStorage
-function getRuleToggles(): Record<string, boolean> {
-  const raw = localStorage.getItem('scheduler_rules');
-  if (!raw) return {};
-  try { return JSON.parse(raw); } catch { return {}; }
-}
-
 export default function DashboardPage() {
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [facilities, setFacilities] = useState<Facility[]>([]);
@@ -74,11 +67,15 @@ export default function DashboardPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    setStaff(getStaff());
-    setFacilities(getFacilities());
-    setTimeOff(getTimeOff());
-    setSettings(getSettings());
-    setRuleToggles(getRuleToggles());
+    const load = () => {
+      setStaff(getStaff());
+      setFacilities(getFacilities());
+      setTimeOff(getTimeOff());
+      setSettings(getSettings());
+      setRuleToggles(getRuleToggles());
+    };
+    load();
+    return subscribeToStore(load);
   }, []);
 
   // Build facility name map

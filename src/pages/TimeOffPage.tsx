@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { TimeOffRequest } from '../types';
-import { getTimeOff, saveTimeOff, getStaff } from '../store';
+import { getTimeOff, saveTimeOff, getStaff, subscribeToStore } from '../store';
 
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -175,9 +175,12 @@ export default function TimeOffPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   useEffect(() => {
-    setRequests(getTimeOff());
-    const staff = getStaff();
-    setStaffList(staff.map(s => ({ id: s.id, name: s.name })));
+    const load = () => {
+      setRequests(getTimeOff());
+      setStaffList(getStaff().map(s => ({ id: s.id, name: s.name })));
+    };
+    load();
+    return subscribeToStore(load);
   }, []);
 
   const refreshRequests = () => {
