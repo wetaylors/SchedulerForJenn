@@ -6,7 +6,7 @@ export const seedStaff: StaffMember[] = [
     name: 'Tracy',
     type: 'PA',
     facilities: ['main', 'scottsdale', 'west', 'east'],
-    capabilities: ['Procedures', 'Neuro'],
+    capabilities: ['Procedures'],
     schedule: {
       mode: 'specific',
       week1Days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
@@ -172,9 +172,7 @@ export const seedFacilities: Facility[] = [
     saturdayCount: 0,
     sundayOpen: false,
     sundayCount: 0,
-    requiredCapabilities: [
-      { capability: 'Neuro', days: ['Wed'] },
-    ],
+    requiredCapabilities: [],
     notes: '',
   },
 ];

@@ -1,4 +1,5 @@
 import type { StaffMember, Facility, TimeOffRequest } from './types';
+import { getSchedule } from './store';
 
 // --- Types ---
 
@@ -258,22 +259,21 @@ export function runPreflightCheck(
 //
 // Hard constraints (in priority order — relaxed from bottom up):
 //   H1: Time off / PTO
-//   H2: Facility restrictions (provider can only work at their facilities)
-//   H3: Jenn cannot work Mondays (excluded days)
-//   H4: Main needs 4 providers
-//   H5: Main needs at least 1 PA for Procedures
-//   H6: Scottsdale needs 1 provider
-//   H7: Tracy at East on Wednesday (Neuro capability)
+//   H2: Facility restrictions (provider can only work at their assigned facilities)
+//   H3: Day exclusions (e.g., Jenn excluded Mon)
+//   H4: Main needs ≥1 PA for Procedures
+//   H5: Main needs 4 providers
+//   H6: Tracy at East on Wednesday (unless on PTO)
+//   H7: Scottsdale needs 1 provider
 //   H8: Jenn max 3 days per week
 //   H9: Pam max 4 days per week
+//   H10: West/East fill incentive (soft penalty when optional clinic unfilled)
 //
 // Soft constraints (scored):
-//   S1-S3: P1 preferences (100 pts each)
-//   S4: Tracy consecutive at Main (100 pts, togglable)
-//   S5-S6: Pattern alternation (100 pts, togglable)
-//   S7: Running balance (100 pts)
-//   S8-S9: P2 preferences (50 pts each)
-//   S10-S12: P4 nice-to-haves (10 pts each)
+//   P1-1: Tracy exactly Mon+Tue or Thu+Fri at Main (150 pts per valid pair)
+//   P1+: P1 preferences (100 pts each)
+//   P2+: P2 preferences (50 pts each)
+//   P4+: P4 nice-to-haves (10 pts each)
 // =============================================
 
 // --- Scoring weights ---
@@ -282,8 +282,8 @@ const W_TRACY_CONSECUTIVE = 150; // Higher than P1 so Tracy's pairing can displa
 const W_P2 = 50;
 const W_P4 = 10;
 // Hard constraint violation penalties (higher H number = first to break = smaller penalty)
-const W_HARD = [0, -90000, -80000, -70000, -60000, -50000, -40000, -30000, -20000, -10000];
-// Index 0 unused; W_HARD[1] = H1 violation, W_HARD[9] = H9 violation
+const W_HARD = [0, -90000, -80000, -70000, -60000, -50000, -40000, -30000, -20000, -10000, -5000];
+// Index 0 unused; W_HARD[1] = H1 violation, W_HARD[10] = H10 violation
 
 // --- Combination generator ---
 function combinations<T>(arr: T[], k: number): T[][] {
@@ -340,57 +340,65 @@ function scoreDayAssignment(
   date: Date,
   staff: StaffMember[],
   facilities: Facility[],
+  timeOff: TimeOffRequest[],
+  tracyId: string | undefined,
 ): number {
   let score = 0;
   const dayName = getDayName(date);
-
-  // Hard constraint checks (add penalties for violations)
-
-  // H4: Main needs 4 providers (weekday)
   const mainFac = facilities.find(f => f.weekdayMin >= 4);
-  if (mainFac) {
-    const mainCount = [...assignments.values()].filter(fid => fid === mainFac.id).length;
-    if (mainCount < mainFac.weekdayMin) {
-      score += W_HARD[9] * (mainFac.weekdayMin - mainCount); // H9 penalty (was H4 in our list but it's the first to break)
-    }
-  }
+  const mainFacId = mainFac?.id;
 
-  // H6: Scottsdale needs 1 provider
-  for (const fac of facilities) {
-    if (fac.weekdayMin > 0 && fac.weekdayMin < 4) { // non-Main facilities with minimums
-      const count = [...assignments.values()].filter(fid => fid === fac.id).length;
-      if (count < fac.weekdayMin) {
-        score += W_HARD[8]; // H8 penalty (Scottsdale is second to break after Main)
-      }
-    }
-  }
-
-  // H5: Main needs at least 1 PA for Procedures
+  // H4: Main needs ≥1 PA for Procedures
   if (mainFac) {
     const requiredCaps = mainFac.requiredCapabilities.filter(rc => rc.days.includes(dayName));
     for (const rc of requiredCaps) {
       const met = [...assignments.entries()].some(([sid, fid]) => {
-        if (fid !== mainFac.id) return false;
+        if (fid !== mainFacId) return false;
         const provider = staff.find(s => s.id === sid);
         return provider?.capabilities.includes(rc.capability) ?? false;
       });
-      if (!met) {
-        score += W_HARD[7]; // H7 penalty
+      if (!met) score += W_HARD[4];
+    }
+  }
+
+  // H5: Main needs 4 providers
+  if (mainFac) {
+    const mainCount = [...assignments.values()].filter(fid => fid === mainFacId).length;
+    if (mainCount < mainFac.weekdayMin) {
+      score += W_HARD[5] * (mainFac.weekdayMin - mainCount);
+    }
+  }
+
+  // H6: Tracy at East on Wednesday (unless on PTO)
+  if (dayName === 'Wed' && tracyId) {
+    const tracyOnPTO = isOnPTO(tracyId, date, timeOff);
+    if (!tracyOnPTO) {
+      const eastFac = facilities.find(f => f.name.toLowerCase().includes('east'));
+      if (eastFac) {
+        const tracyFacId = assignments.get(tracyId);
+        if (!tracyFacId || tracyFacId !== eastFac.id) {
+          score += W_HARD[6];
+        }
       }
     }
   }
 
-  // H7: Capability requirements at all facilities (e.g., Tracy at East on Wed for Neuro)
+  // H7: Non-Main facilities with minimums (e.g., Scottsdale needs 1 provider)
   for (const fac of facilities) {
-    const requiredCaps = fac.requiredCapabilities.filter(rc => rc.days.includes(dayName));
-    for (const rc of requiredCaps) {
-      const met = [...assignments.entries()].some(([sid, fid]) => {
-        if (fid !== fac.id) return false;
-        const provider = staff.find(s => s.id === sid);
-        return provider?.capabilities.includes(rc.capability) ?? false;
-      });
-      if (!met && fac !== mainFac) { // Main already checked above
-        score += W_HARD[6]; // H6 penalty
+    if (fac.weekdayMin > 0 && fac !== mainFac) {
+      const count = [...assignments.values()].filter(fid => fid === fac.id).length;
+      if (count < fac.weekdayMin) {
+        score += W_HARD[7];
+      }
+    }
+  }
+
+  // H10: Optional clinic fill incentive (penalty when unfilled)
+  for (const fac of facilities) {
+    if (fac.weekdayMin === 0 && fac.weekdayMax > 0) {
+      const count = [...assignments.values()].filter(fid => fid === fac.id).length;
+      if (count === 0) {
+        score += W_HARD[10];
       }
     }
   }
@@ -411,24 +419,14 @@ function scoreDayAssignment(
 
       if (pref.type === 'Prefer') {
         if (pref.value === facName) {
-          score += weight; // Honored preference
+          score += weight;
         } else {
-          score -= weight; // Violated preference
+          score -= weight;
         }
       } else if (pref.type === 'Avoid') {
         if (pref.value === facName) {
-          score -= weight; // At avoided facility
+          score -= weight;
         }
-      }
-    }
-  }
-
-  // S10-S12: Clinic fill bonuses
-  for (const fac of facilities) {
-    if (fac.weekdayMin === 0 && fac.weekdayMax > 0) {
-      const count = [...assignments.values()].filter(fid => fid === fac.id).length;
-      if (count > 0) {
-        score += W_P4; // S10/S11: clinic filled
       }
     }
   }
@@ -436,8 +434,10 @@ function scoreDayAssignment(
   return score;
 }
 
-// --- Score Tracy consecutive rule for a week ---
-function scoreTracyConsecutive(
+// --- Score Tracy weekly Main pattern (P1-1) ---
+// Valid: exactly Mon+Tue OR exactly Thu+Fri at Main → reward
+// Anything else at Main → penalize proportional to days at Main
+function scoreTracyWeekPattern(
   weekAssignments: Map<string, Map<string, string>>, // dateKey → (staffId → facilityId)
   weekDates: Date[],
   tracyId: string | undefined,
@@ -445,38 +445,26 @@ function scoreTracyConsecutive(
 ): number {
   if (!tracyId || !mainFacId) return 0;
 
-  // Count how many days Tracy is at Main
-  let mainDays = 0;
-  const tracyMainDays: string[] = []; // day names when Tracy is at Main
+  const tracyMainDays: string[] = [];
   for (const d of weekDates) {
     const dk = toDateKey(d);
     const dayAssign = weekAssignments.get(dk);
     if (dayAssign && dayAssign.get(tracyId) === mainFacId) {
-      mainDays++;
       tracyMainDays.push(getDayName(d));
     }
   }
 
-  if (mainDays === 0) return 0; // Not at Main at all — rule satisfied
+  const mainDays = tracyMainDays.length;
+  if (mainDays === 0) return 0;
 
-  // Check if Main days come in valid consecutive pairs (Mon+Tue, Thu+Fri)
-  const hasMonTue = tracyMainDays.includes('Mon') && tracyMainDays.includes('Tue');
-  const hasThuFri = tracyMainDays.includes('Thu') && tracyMainDays.includes('Fri');
-  const monAlone = tracyMainDays.includes('Mon') && !tracyMainDays.includes('Tue');
-  const tueAlone = tracyMainDays.includes('Tue') && !tracyMainDays.includes('Mon');
-  const thuAlone = tracyMainDays.includes('Thu') && !tracyMainDays.includes('Fri');
-  const friAlone = tracyMainDays.includes('Fri') && !tracyMainDays.includes('Thu');
-  const wedAtMain = tracyMainDays.includes('Wed'); // Wed should never be Main (Tracy at East)
+  // Valid patterns: exactly Mon+Tue or exactly Thu+Fri
+  const isMonTue = mainDays === 2 && tracyMainDays.includes('Mon') && tracyMainDays.includes('Tue');
+  const isThuFri = mainDays === 2 && tracyMainDays.includes('Thu') && tracyMainDays.includes('Fri');
 
-  let pairScore = 0;
-  if (hasMonTue) pairScore += W_TRACY_CONSECUTIVE;
-  if (hasThuFri) pairScore += W_TRACY_CONSECUTIVE;
+  if (isMonTue || isThuFri) return W_TRACY_CONSECUTIVE;
 
-  // Penalize unpaired days
-  const unpairedCount = (monAlone ? 1 : 0) + (tueAlone ? 1 : 0) + (thuAlone ? 1 : 0) + (friAlone ? 1 : 0) + (wedAtMain ? 1 : 0);
-  pairScore -= unpairedCount * W_TRACY_CONSECUTIVE;
-
-  return pairScore;
+  // Any other pattern: penalize proportional to days at Main
+  return -mainDays * W_TRACY_CONSECUTIVE;
 }
 
 // --- Score clinic distribution fairness (S12) ---
@@ -539,11 +527,10 @@ export function generateSchedule(
   const calendarDays = buildCalendarDays(year, month);
   const weeks = getWorkWeeks(year, month, patternStart);
   const daysInMonth = getDaysInMonth(year, month);
-  const tracyConsecutiveEnabled = ruleToggles['tracy_consecutive'] !== false;
   const carryoverMap = splitWeekCarryover ?? new Map<string, number>();
 
   // Find key providers and facilities by their properties
-  const tracyId = staff.find(s => s.capabilities.includes('Neuro'))?.id;
+  const tracyId = staff.find(s => s.name === 'Tracy')?.id;
   const mainFac = facilities.find(f => f.weekdayMin >= 4);
   const mainFacId = mainFac?.id;
 
@@ -740,7 +727,7 @@ export function generateSchedule(
             }
           }
           weekAssignments.set(dk, fallback);
-          weekScore += scoreDayAssignment(fallback, date, staff, facilities);
+          weekScore += scoreDayAssignment(fallback, date, staff, facilities, timeOff, tracyId);
           continue;
         }
 
@@ -748,7 +735,7 @@ export function generateSchedule(
         let bestDayScore = -Infinity;
         let bestDayAssign = dayResults[0];
         for (const assign of dayResults) {
-          const s = scoreDayAssignment(assign, date, staff, facilities);
+          const s = scoreDayAssignment(assign, date, staff, facilities, timeOff, tracyId);
           if (s > bestDayScore) {
             bestDayScore = s;
             bestDayAssign = assign;
@@ -759,10 +746,8 @@ export function generateSchedule(
         weekScore += bestDayScore;
       }
 
-      // Cross-day scoring: Tracy consecutive rule (S4)
-      if (tracyConsecutiveEnabled) {
-        weekScore += scoreTracyConsecutive(weekAssignments, week.dates, tracyId, mainFacId);
-      }
+      // Cross-day scoring: Tracy Main week pattern (P1-1)
+      weekScore += scoreTracyWeekPattern(weekAssignments, week.dates, tracyId, mainFacId);
 
       // S12: Clinic fairness (include previous weeks + this week candidate)
       const partialMonth = new Map(monthSolution);
@@ -796,25 +781,19 @@ export function generateSchedule(
     const prevM = month - lookback;
     const prevY = prevM < 0 ? year - 1 : year;
     const prevMonth = ((prevM % 12) + 12) % 12;
-    const prevKey = `scheduler_schedule_${prevY}-${String(prevMonth + 1).padStart(2, '0')}`;
-    try {
-      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(prevKey) : null;
-      if (raw) {
-        const prev = JSON.parse(raw) as { state: string; days: { dateISO: string; assignments: { staffId: string; facilityId: string }[] }[] };
-        if (prev.state === 'generated') {
-          for (const sd of prev.days) {
-            const d = new Date(sd.dateISO + 'T00:00:00');
-            if (d.getDay() === 6) { // Saturday
-              for (const a of sd.assignments) {
-                if (a.facilityId !== '__pto__' && a.facilityId !== '__off__') {
-                  saturdayCounts.set(a.staffId, (saturdayCounts.get(a.staffId) ?? 0) + 1);
-                }
-              }
+    const prev = getSchedule(prevY, prevMonth);
+    if (prev?.state === 'generated') {
+      for (const sd of prev.days) {
+        const d = new Date(sd.dateISO + 'T00:00:00');
+        if (d.getDay() === 6) { // Saturday
+          for (const a of sd.assignments) {
+            if (a.facilityId !== '__pto__' && a.facilityId !== '__off__') {
+              saturdayCounts.set(a.staffId, (saturdayCounts.get(a.staffId) ?? 0) + 1);
             }
           }
         }
       }
-    } catch { /* ignore parse errors */ }
+    }
   }
 
   for (const day of calendarDays) {
@@ -965,6 +944,19 @@ export function generateSchedule(
           a.facilityId === fac.id && staff.find(ss => ss.id === a.staffId)?.capabilities.includes(rc.capability)
         );
         if (!met) issues.push(`${fac.name}: no ${rc.capability} provider`);
+      }
+    }
+    // H6: Tracy must be at East on Wednesday (unless on PTO)
+    if (dayName === 'Wed' && tracyId) {
+      const tracyOnPTO = isOnPTO(tracyId, day.date, timeOff);
+      if (!tracyOnPTO) {
+        const eastFac = facilities.find(f => f.name.toLowerCase().includes('east'));
+        if (eastFac) {
+          const tracyAssignment = day.assignments.find(a => a.staffId === tracyId);
+          if (!tracyAssignment || tracyAssignment.facilityId !== eastFac.id) {
+            issues.push(`${eastFac.name}: Tracy must cover Wednesday (H6)`);
+          }
+        }
       }
     }
     if (issues.length > 0) day.coverageIssue = issues.join('; ');

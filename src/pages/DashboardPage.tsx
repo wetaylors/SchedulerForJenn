@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { StaffMember, Facility, TimeOffRequest, AppSettings } from '../types';
-import { getStaff, getFacilities, getTimeOff, getSettings, getRuleToggles, subscribeToStore } from '../store';
+import { getStaff, getFacilities, getTimeOff, getSettings, subscribeToStore } from '../store';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 
@@ -63,7 +63,6 @@ export default function DashboardPage() {
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [timeOff, setTimeOff] = useState<TimeOffRequest[]>([]);
   const [settings, setSettings] = useState<AppSettings>({ patternStartDate: '' });
-  const [ruleToggles, setRuleToggles] = useState<Record<string, boolean>>({});
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -72,7 +71,6 @@ export default function DashboardPage() {
       setFacilities(getFacilities());
       setTimeOff(getTimeOff());
       setSettings(getSettings());
-      setRuleToggles(getRuleToggles());
     };
     load();
     return subscribeToStore(load);
@@ -91,12 +89,6 @@ export default function DashboardPage() {
     ? new Date(settings.patternStartDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
     : 'not set';
 
-  // Hard-coded rule toggle names
-  const hardRules = [
-    { id: 'tracy_consecutive', label: 'Tracy: Consecutive days at Main' },
-    { id: 'jenn_alternation', label: 'Jenn: 2/3 pattern alternation' },
-    { id: 'pam_alternation', label: 'Pam: 3/4 pattern alternation' },
-  ];
 
   return (
     <>
@@ -269,20 +261,7 @@ export default function DashboardPage() {
               <div className="rule-item"><div className="rule-icon">W</div><div className="rule-text"><strong>Work Schedule:</strong> Providers scheduled per their pattern (start: {patternDateLabel})</div></div>
               <div className="rule-item"><div className="rule-icon">F</div><div className="rule-text"><strong>Fairness:</strong> Balance Saturday shifts evenly across available providers</div></div>
               <div className="rule-item"><div className="rule-icon">S</div><div className="rule-text"><strong>Preferences:</strong> Honor provider preferences by priority (1=highest). Violations flagged on calendar</div></div>
-              {hardRules.map(r => {
-                const enabled = ruleToggles[r.id] !== false;
-                return (
-                  <div key={r.id} className="rule-item">
-                    <div className="rule-icon" style={!enabled ? { background: '#fee2e2', color: '#991b1b' } : undefined}>
-                      {enabled ? '\u2713' : '\u2717'}
-                    </div>
-                    <div className="rule-text">
-                      <strong>{r.label}</strong>
-                      {!enabled && <span style={{ color: '#991b1b', fontSize: 11, marginLeft: 6 }}>(disabled)</span>}
-                    </div>
-                  </div>
-                );
-              })}
+              <div className="rule-item"><div className="rule-icon">T</div><div className="rule-text"><strong>Tracy:</strong> East Clinic on Wed; exactly Mon+Tue or Thu+Fri at Main</div></div>
             </div>
           </div>
 
