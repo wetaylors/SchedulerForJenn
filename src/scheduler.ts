@@ -638,6 +638,35 @@ export function generateSchedule(
 
     const allDaySelections = cartesianProduct(perProviderOptions);
 
+    // Pre-determine Tracy's Main pair for this week (P1-1 enforcement)
+    // Alternates by pattern week: week 1 = Mon+Tue, week 2 = Thu+Fri
+    // Falls back to the other pair if Tracy is on PTO for either day
+    const tracyMainDateKeys = new Set<string>();
+    if (tracyId && mainFacId) {
+      const monDate = week.dates.find(d => getDayName(d) === 'Mon');
+      const tueDate = week.dates.find(d => getDayName(d) === 'Tue');
+      const thuDate = week.dates.find(d => getDayName(d) === 'Thu');
+      const friDate = week.dates.find(d => getDayName(d) === 'Fri');
+      const monOk = monDate && !isOnPTO(tracyId, monDate, timeOff);
+      const tueOk = tueDate && !isOnPTO(tracyId, tueDate, timeOff);
+      const thuOk = thuDate && !isOnPTO(tracyId, thuDate, timeOff);
+      const friOk = friDate && !isOnPTO(tracyId, friDate, timeOff);
+      const preferMonTue = week.patternWeek === 1;
+      if (preferMonTue && monOk && tueOk) {
+        tracyMainDateKeys.add(toDateKey(monDate!));
+        tracyMainDateKeys.add(toDateKey(tueDate!));
+      } else if (!preferMonTue && thuOk && friOk) {
+        tracyMainDateKeys.add(toDateKey(thuDate!));
+        tracyMainDateKeys.add(toDateKey(friDate!));
+      } else if (monOk && tueOk) {
+        tracyMainDateKeys.add(toDateKey(monDate!));
+        tracyMainDateKeys.add(toDateKey(tueDate!));
+      } else if (thuOk && friOk) {
+        tracyMainDateKeys.add(toDateKey(thuDate!));
+        tracyMainDateKeys.add(toDateKey(friDate!));
+      }
+    }
+
     // 4. For each day-selection combo, find best facility assignments and score
     let bestWeekScore = -Infinity;
     let bestWeekSolution = new Map<string, Map<string, string>>();
@@ -666,6 +695,13 @@ export function generateSchedule(
             const count = facilityCounts.get(p.facilityId) ?? 0;
             facilityCounts.set(p.facilityId, count + 1);
           }
+        }
+
+        // P1-1: Pre-assign Tracy to Main on her designated pair days (Mon+Tue or Thu+Fri)
+        if (tracyMainDateKeys.has(dk) && tracyId && !pinnedStaffIds.has(tracyId)) {
+          pinnedMap.set(tracyId, mainFacId!);
+          pinnedStaffIds.add(tracyId);
+          facilityCounts.set(mainFacId!, (facilityCounts.get(mainFacId!) ?? 0) + 1);
         }
 
         // H6: Pre-assign Tracy to East on Wednesday (true hard rule, overrides scoring)
