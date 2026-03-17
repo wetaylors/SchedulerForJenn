@@ -521,7 +521,7 @@ export function generateSchedule(
   timeOff: TimeOffRequest[],
   patternStart: string,
   pinnedAssignments: Map<string, Assignment[]>,
-  ruleToggles: Record<string, boolean>,
+  _ruleToggles: Record<string, boolean>,
   splitWeekCarryover?: Map<string, number>,
 ): DayData[] {
   const calendarDays = buildCalendarDays(year, month);
