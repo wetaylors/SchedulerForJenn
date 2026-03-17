@@ -668,6 +668,18 @@ export function generateSchedule(
           }
         }
 
+        // H6: Pre-assign Tracy to East on Wednesday (true hard rule, overrides scoring)
+        const dayNameForPin = getDayName(date);
+        if (dayNameForPin === 'Wed' && tracyId && !pinnedStaffIds.has(tracyId)) {
+          const tracyOnPTO = isOnPTO(tracyId, date, timeOff);
+          const eastFac = facilities.find(f => f.name.toLowerCase().includes('east'));
+          if (!tracyOnPTO && eastFac) {
+            pinnedMap.set(tracyId, eastFac.id);
+            pinnedStaffIds.add(tracyId);
+            facilityCounts.set(eastFac.id, (facilityCounts.get(eastFac.id) ?? 0) + 1);
+          }
+        }
+
         // Build list of non-pinned working providers for today
         for (const s of staff) {
           if (pinnedStaffIds.has(s.id)) continue; // already pinned
